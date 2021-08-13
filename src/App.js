@@ -7,12 +7,16 @@ import ListItemText from '@material-ui/core/ListItemText';
 import DialogTitle from '@material-ui/core/DialogTitle';
 import Dialog from '@material-ui/core/Dialog';
 import styled from 'styled-components';
+import Alert from '@material-ui/lab/Alert';
+import Snackbar from '@material-ui/core/Snackbar';
+
+import configData from "./config.json";
 
 function Text(props) {
   return <div style={{ margin: 5 }}>{props.children}</div>;
 }
 
-const MapMarker = ({ text }) => <div>{text}</div>;
+//const MapMarker = ({ text }) => <div>{text}</div>;
 
 /*
 const Marker = ({}) => {
@@ -58,6 +62,21 @@ const Marker = ({ text, onClick }) => (
   />
 );
 
+function createWsURL() {
+  if (configData.wsUrl) {
+    return configData.wsUrl;
+  }
+  var wsUrl;
+  if (window.location.protocol === "https:") {
+    wsUrl = "wss";
+  } else {
+    wsUrl = "ws";
+  }
+  wsUrl += '://' + window.location.host+"/ws";
+  return wsUrl;
+
+}
+
 function SimpleDialog(props) {
   const { onClose, open, dialogTitle, trackables } = props;
 
@@ -97,19 +116,32 @@ class SimpleMap extends Component {
       dialogTitle: "",
       userName: "",
       trackee: "",
-      markers: []
+      markers: [],
+      showAlert: false,
+      alertMsg: "",
+      showInfo: false,
+      infoMsg: ""
     };
   }
 
   componentDidMount() {
     this.setState({isTracking: false});
-    this.socket = new WebSocket("wss://192.168.50.9:31171/");
+    this.createWebSocket();
+  }
+
+  createWebSocket() {
+    this.socket = new WebSocket(createWsURL());
     this.socket.onopen = () => {
       console.log('WebSocket Client Connected');
+      this.setState({showInfo: true, infoMsg: "Connected to WebSocket"});
+
       const reqData = {
         RequestType: 2
       }            
       this.socket.send(JSON.stringify(reqData));
+      if (this.state.isTracking) {
+        this.startTracking(this.state.userName, this.state.trackee);
+      }
     };
 
     this.socket.onmessage = (message) => {
@@ -119,6 +151,7 @@ class SimpleMap extends Component {
       switch (response.Type) {
         case 0:
           this.setState({trackables: response.Trackables});
+          this.setState({showInfo: true, infoMsg: "Loaded Trackables"});
           break;  
         case 1:
           break;  
@@ -142,8 +175,16 @@ class SimpleMap extends Component {
       }
     };
 
-    this.socket.onerror = function(error) {
-      console.error("WebSocket error observed:", error);
+    this.socket.onclose = (event) => {
+      console.error("WebSocket close:", event);
+      if (this.state.alertMsg === "") {
+        this.createWebSocket();
+      }
+    };
+
+    this.socket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      this.setState({showAlert: true, alertMsg: "WebSocket error"});
     };
   }
 
@@ -153,15 +194,19 @@ class SimpleMap extends Component {
       this.setState({userName: trackable, dialogOpen: true, dialogTitle: "Select Trackee"});
     } else {
       this.setState({trackee: trackable, dialogTitle: "Select User"});
-      const reqData = {
-        RequestType: 0,
-        TrackingRequest: {
-          TrackeeName: trackable,
-          UserName: this.state.userName
-        }
-      }            
-      this.socket.send(JSON.stringify(reqData));
+      this.startTracking(this.state.userName, trackable);
     }
+  }
+
+  startTracking(userName, trackee) {
+    const reqData = {
+      RequestType: 0,
+      TrackingRequest: {
+        TrackeeName: trackee,
+        UserName: userName
+      }
+    }            
+    this.socket.send(JSON.stringify(reqData));
   }
 
   render() {
@@ -198,6 +243,7 @@ class SimpleMap extends Component {
       </div>
       <div style={{ height: '90vh', width: '100%' }}>
         <GoogleMapReact
+          bootstrapURLKeys={{ key: configData.mapKey }}
           defaultCenter={this.props.center}
           defaultZoom={this.props.zoom}
         >
@@ -212,6 +258,22 @@ class SimpleMap extends Component {
         </GoogleMapReact>
       </div>
       <SimpleDialog open={this.state.dialogOpen} onClose={(trackable)=> this.handleClose(trackable)} dialogTitle={this.state.dialogTitle} trackables={this.state.trackables}/>
+      <Snackbar
+        anchorOrigin={ {vertical: 'bottom', horizontal: 'left' }}
+        open={this.state.showAlert}
+        onClose={() => this.setState({showAlert: false})}
+      >
+          <Alert severity="error" onClose={() => { this.setState({showAlert: false}); }}>{this.state.alertMsg}</Alert>
+      </Snackbar>
+      <Snackbar
+        anchorOrigin={ {vertical: 'bottom', horizontal: 'left' }}
+        open={this.state.showInfo}
+        onClose={() => this.setState({showInfo: false})}
+        autoHideDuration={6000}
+      >
+          <Alert onClose={() => { this.setState({showInfo: false}); }}>{this.state.infoMsg}</Alert>
+      </Snackbar>
+
       </div>
     );
   }
